@@ -16,6 +16,10 @@ const io = new SocketIOServer(server, {
     origin: '*',
     methods: ['GET', 'POST'],
   },
+  transports: ['websocket', 'polling'],
+  upgradeTimeout: 10000,
+  pingTimeout: 60000,
+  pingInterval: 25000,
 });
 
 // Middleware

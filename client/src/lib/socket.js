@@ -8,7 +8,10 @@ const socket = io(window.location.origin, {
   reconnection: true,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
-  reconnectionAttempts: 5,
+  reconnectionAttempts: Infinity,
+  transports: ['websocket', 'polling'],
+  upgrade: true,
+  path: '/socket.io/',
 });
 
 socket.on('connect', () => {

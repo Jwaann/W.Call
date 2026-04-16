@@ -60,6 +60,7 @@ export default function usePeerConnection(socket, callStatus, setCallStatus, act
         bytes[i] = binary.charCodeAt(i);
       }
       audioBufferRef.current.push(bytes);
+      console.log('[Audio] Received chunk, buffer length:', audioBufferRef.current.length, 'bytes:', bytes.length);
     };
 
     const handleHangUp = () => {
@@ -115,26 +116,39 @@ export default function usePeerConnection(socket, callStatus, setCallStatus, act
   useEffect(() => {
     if (audioBufferRef.current.length === 0) return;
 
+    console.log('[Audio] Playback effect triggered, buffer:', audioBufferRef.current.length);
+
     const audioContext = audioContextRef.current;
-    if (!audioContext) return;
+    if (!audioContext) {
+      console.error('[Audio] No audio context available');
+      return;
+    }
 
     // Resume audio context if suspended (required after user interaction)
     if (audioContext.state === 'suspended') {
+      console.log('[Audio] Resuming suspended context');
       audioContext.resume();
     }
 
     const bytes = audioBufferRef.current.shift();
+    console.log('[Audio] Attempting to play chunk, bytes:', bytes.length);
+
     const blob = new Blob([bytes], { type: 'audio/webm' });
 
     // Decode the audio blob properly
     const reader = new FileReader();
     reader.onload = () => {
       const arrayBuffer = reader.result;
+      console.log('[Audio] Decoding audio data, size:', arrayBuffer.byteLength);
+
       audioContext.decodeAudioData(arrayBuffer, (audioBuffer) => {
+        console.log('[Audio] Decode success, duration:', audioBuffer.duration, 'channels:', audioBuffer.numberOfChannels);
+
         const source = audioContext.createBufferSource();
         source.buffer = audioBuffer;
         source.connect(audioContext.destination);
         source.start(0);
+        console.log('[Audio] Playing audio');
       }, (err) => {
         console.error('[Audio] Decode error:', err);
       });

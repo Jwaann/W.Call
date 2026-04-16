@@ -116,21 +116,30 @@ export default function usePeerConnection(socket, callStatus, setCallStatus, act
     if (audioBufferRef.current.length === 0) return;
 
     const audioContext = audioContextRef.current;
-    if (!audioContext || !remoteAudioRef.current) return;
+    if (!audioContext) return;
 
-    const bytes = audioBufferRef.current.shift();
-    const float32Array = new Float32Array(bytes.length);
-    for (let i = 0; i < bytes.length; i++) {
-      float32Array[i] = bytes[i] / 255;
+    // Resume audio context if suspended (required after user interaction)
+    if (audioContext.state === 'suspended') {
+      audioContext.resume();
     }
 
-    const audioBuffer = audioContext.createBuffer(1, float32Array.length, 16000);
-    audioBuffer.getChannelData(0).set(float32Array);
+    const bytes = audioBufferRef.current.shift();
+    const blob = new Blob([bytes], { type: 'audio/webm' });
 
-    const source = audioContext.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioContext.destination);
-    source.start(0);
+    // Decode the audio blob properly
+    const reader = new FileReader();
+    reader.onload = () => {
+      const arrayBuffer = reader.result;
+      audioContext.decodeAudioData(arrayBuffer, (audioBuffer) => {
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioContext.destination);
+        source.start(0);
+      }, (err) => {
+        console.error('[Audio] Decode error:', err);
+      });
+    };
+    reader.readAsArrayBuffer(blob);
   }, [audioBufferRef.current.length]);
 
   const startCall = useCallback(

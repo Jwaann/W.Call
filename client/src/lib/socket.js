@@ -6,12 +6,12 @@ import { io } from 'socket.io-client';
  */
 const socket = io(window.location.origin, {
   reconnection: true,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
+  reconnectionDelay: 2000,
+  reconnectionDelayMax: 10000,
   reconnectionAttempts: Infinity,
-  transports: ['websocket', 'polling'],
-  upgrade: true,
+  transports: ['polling'],
   path: '/socket.io/',
+  upgradeTimeout: 20000,
 });
 
 socket.on('connect', () => {

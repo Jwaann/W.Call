@@ -141,11 +141,14 @@ export default function usePeerConnection(socket, callStatus, setCallStatus, act
     // Handle ICE candidates
     pcRef.current.onicecandidate = (event) => {
       if (event.candidate && remoteCallPeerRef.current && myPeerId) {
+        console.log('[WebRTC] ICE candidate:', event.candidate.candidate.substring(0, 50));
         socket.emit('ice-candidate', {
           from: myPeerId,
           to: remoteCallPeerRef.current,
           candidate: event.candidate,
         });
+      } else if (!event.candidate) {
+        console.log('[WebRTC] ICE gathering complete');
       }
     };
 
@@ -154,7 +157,7 @@ export default function usePeerConnection(socket, callStatus, setCallStatus, act
       const state = pcRef.current?.iceConnectionState;
       console.log('[WebRTC] ICE connection state:', state);
 
-      if (state === 'connected') {
+      if (state === 'connected' || state === 'completed') {
         setCallStatus('connected');
       } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
         setCallStatus('disconnected');
@@ -163,6 +166,11 @@ export default function usePeerConnection(socket, callStatus, setCallStatus, act
           setCallStatus('idle');
         }, 2000);
       }
+    };
+
+    // Log connection state changes
+    pcRef.current.onconnectionstatechange = () => {
+      console.log('[WebRTC] Connection state:', pcRef.current?.connectionState);
     };
 
     console.log('[WebRTC] Peer connection created');

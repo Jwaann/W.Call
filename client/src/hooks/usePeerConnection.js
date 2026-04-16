@@ -4,13 +4,8 @@ const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    {
-      urls: ['turn:relay.metered.ca:80', 'turn:relay.metered.ca:443'],
-      username: 'f38059d27c41bf7fbf1edecc',
-      credential: '2jK2KPxMQFKMxXJo',
-    },
+    { urls: 'stun:stunserver.stunprotocol.org:3478' },
+    { urls: 'stun:stun.services.mozilla.com:3478' },
   ],
 };
 

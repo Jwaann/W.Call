@@ -1,21 +1,15 @@
 import { useRef, useEffect, useCallback } from 'react';
 
-const RTC_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stunserver.stunprotocol.org:3478' },
-    { urls: 'stun:stun.services.mozilla.com:3478' },
-  ],
-};
-
+// Audio relay through Socket.io instead of WebRTC P2P
+// This works through Railway because Socket.io is already working!
 export default function usePeerConnection(socket, callStatus, setCallStatus, activeCallPeer, myPeerId) {
-  const pcRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
   const remoteCallPeerRef = useRef(null);
+  const audioBufferRef = useRef([]);
 
   // Initialize local media stream and audio context on mount
   useEffect(() => {
@@ -49,166 +43,120 @@ export default function usePeerConnection(socket, callStatus, setCallStatus, act
       if (audioContextRef.current) {
         audioContextRef.current.close();
       }
+      if (mediaRecorderRef.current) {
+        mediaRecorderRef.current.stop();
+      }
     };
   }, []);
 
-  // Setup socket event listeners for WebRTC signaling
+  // Setup socket listeners for audio relay and call signaling
   useEffect(() => {
-    const handleOffer = async (payload) => {
-      const { from, sdp } = payload;
-      remoteCallPeerRef.current = from;
-      try {
-        if (!pcRef.current) {
-          createPeerConnection();
-        }
-        await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-        const answer = await pcRef.current.createAnswer();
-        await pcRef.current.setLocalDescription(answer);
-        socket.emit('answer', {
-          from: myPeerId,
-          to: from,
-          sdp: answer,
-        });
-        console.log('[WebRTC] Answer sent');
-      } catch (err) {
-        console.error('[WebRTC] Offer handling error:', err);
+    const handleAudioData = (payload) => {
+      const { data } = payload;
+      // Convert base64 back to audio data
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
       }
-    };
-
-    const handleAnswer = async (payload) => {
-      const { sdp } = payload;
-      try {
-        if (pcRef.current && pcRef.current.signalingState === 'have-local-offer') {
-          await pcRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
-          console.log('[WebRTC] Answer received');
-        }
-      } catch (err) {
-        console.error('[WebRTC] Answer handling error:', err);
-      }
-    };
-
-    const handleIceCandidate = async (payload) => {
-      const { candidate } = payload;
-      try {
-        if (pcRef.current && candidate) {
-          await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-        }
-      } catch (err) {
-        console.error('[WebRTC] ICE candidate error:', err);
-      }
+      audioBufferRef.current.push(bytes);
     };
 
     const handleHangUp = () => {
-      closeConnection();
+      stopAudioRelay();
       setCallStatus('idle');
     };
 
-    socket.on('offer', handleOffer);
-    socket.on('answer', handleAnswer);
-    socket.on('ice-candidate', handleIceCandidate);
+    socket.on('audio-data', handleAudioData);
     socket.on('hang-up', handleHangUp);
 
     return () => {
-      socket.off('offer', handleOffer);
-      socket.off('answer', handleAnswer);
-      socket.off('ice-candidate', handleIceCandidate);
+      socket.off('audio-data', handleAudioData);
       socket.off('hang-up', handleHangUp);
     };
-  }, [socket, setCallStatus, myPeerId]);
+  }, [socket, setCallStatus]);
 
-  const createPeerConnection = useCallback(() => {
-    if (pcRef.current) {
-      pcRef.current.close();
-    }
+  // Start recording and streaming audio
+  const startAudioRelay = useCallback(() => {
+    if (!localStreamRef.current || !remoteCallPeerRef.current) return;
 
-    pcRef.current = new RTCPeerConnection(RTC_CONFIG);
+    const mediaRecorder = new MediaRecorder(localStreamRef.current, {
+      audioBitsPerSecond: 16000,
+    });
 
-    // Add local tracks
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => {
-        pcRef.current.addTrack(track, localStreamRef.current);
-      });
-    }
+    mediaRecorderRef.current = mediaRecorder;
 
-    // Handle remote stream
-    pcRef.current.ontrack = (event) => {
-      console.log('[WebRTC] Remote track received');
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = event.streams[0];
-      }
-    };
-
-    // Handle ICE candidates
-    pcRef.current.onicecandidate = (event) => {
-      if (event.candidate && remoteCallPeerRef.current && myPeerId) {
-        console.log('[WebRTC] ICE candidate:', event.candidate.candidate.substring(0, 50));
-        socket.emit('ice-candidate', {
-          from: myPeerId,
+    mediaRecorder.ondataavailable = (event) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result.split(',')[1];
+        socket.emit('audio-data', {
           to: remoteCallPeerRef.current,
-          candidate: event.candidate,
+          from: myPeerId,
+          data: base64,
         });
-      } else if (!event.candidate) {
-        console.log('[WebRTC] ICE gathering complete');
-      }
+      };
+      reader.readAsDataURL(event.data);
     };
 
-    // Monitor connection state
-    pcRef.current.oniceconnectionstatechange = () => {
-      const state = pcRef.current?.iceConnectionState;
-      console.log('[WebRTC] ICE connection state:', state);
+    mediaRecorder.start(100); // Record in 100ms chunks
+    console.log('[Audio] Relay started');
+  }, [socket, myPeerId]);
 
-      if (state === 'connected' || state === 'completed') {
-        setCallStatus('connected');
-      } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
-        setCallStatus('disconnected');
-        setTimeout(() => {
-          closeConnection();
-          setCallStatus('idle');
-        }, 2000);
-      }
-    };
+  const stopAudioRelay = useCallback(() => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+      console.log('[Audio] Relay stopped');
+    }
+  }, []);
 
-    // Log connection state changes
-    pcRef.current.onconnectionstatechange = () => {
-      console.log('[WebRTC] Connection state:', pcRef.current?.connectionState);
-    };
+  // Play received audio
+  useEffect(() => {
+    if (audioBufferRef.current.length === 0) return;
 
-    console.log('[WebRTC] Peer connection created');
-  }, [socket, setCallStatus, myPeerId]);
+    const audioContext = audioContextRef.current;
+    if (!audioContext || !remoteAudioRef.current) return;
+
+    const bytes = audioBufferRef.current.shift();
+    const float32Array = new Float32Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) {
+      float32Array[i] = bytes[i] / 255;
+    }
+
+    const audioBuffer = audioContext.createBuffer(1, float32Array.length, 16000);
+    audioBuffer.getChannelData(0).set(float32Array);
+
+    const source = audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioContext.destination);
+    source.start(0);
+  }, [audioBufferRef.current.length]);
 
   const startCall = useCallback(
-    async (remotePeerId) => {
-      try {
-        remoteCallPeerRef.current = remotePeerId;
-        createPeerConnection();
-
-        const offer = await pcRef.current.createOffer();
-        await pcRef.current.setLocalDescription(offer);
-
-        socket.emit('offer', {
-          from: myPeerId,
-          to: remotePeerId,
-          sdp: offer,
-        });
-        console.log('[WebRTC] Offer sent to', remotePeerId);
-      } catch (err) {
-        console.error('[WebRTC] Error creating offer:', err);
-      }
+    (remotePeerId) => {
+      remoteCallPeerRef.current = remotePeerId;
+      setCallStatus('connecting');
+      setTimeout(() => {
+        startAudioRelay();
+        setCallStatus('connected');
+      }, 500);
+      console.log('[Audio] Call started');
     },
-    [createPeerConnection, socket, myPeerId]
+    [startAudioRelay, setCallStatus]
   );
 
   const acceptCall = useCallback(
-    async (remotePeerId) => {
-      try {
-        remoteCallPeerRef.current = remotePeerId;
-        createPeerConnection();
-        console.log('[WebRTC] Ready to receive offer from', remotePeerId);
-      } catch (err) {
-        console.error('[WebRTC] Error accepting call:', err);
-      }
+    (remotePeerId) => {
+      remoteCallPeerRef.current = remotePeerId;
+      setCallStatus('connecting');
+      setTimeout(() => {
+        startAudioRelay();
+        setCallStatus('connected');
+      }, 500);
+      console.log('[Audio] Call accepted');
     },
-    [createPeerConnection]
+    [startAudioRelay, setCallStatus]
   );
 
   const toggleMute = useCallback((muted) => {
@@ -219,27 +167,18 @@ export default function usePeerConnection(socket, callStatus, setCallStatus, act
     }
   }, []);
 
-  const closeConnection = useCallback(() => {
-    if (pcRef.current) {
-      pcRef.current.close();
-      pcRef.current = null;
-      remoteCallPeerRef.current = null;
-      console.log('[WebRTC] Peer connection closed');
-    }
-  }, []);
-
   const hangUp = useCallback(() => {
-    closeConnection();
-  }, [closeConnection]);
+    stopAudioRelay();
+  }, [stopAudioRelay]);
 
   return {
-    current: pcRef.current,
+    current: null,
     remoteAudioRef,
     audioLevelNode: analyserRef.current,
     startCall,
     acceptCall,
     hangUp,
     toggleMute,
-    closeConnection,
+    closeConnection: hangUp,
   };
 }

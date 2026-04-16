@@ -5,9 +5,9 @@ const RTC_CONFIG = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     {
-      urls: ['turn:turn.bistri.cc:80', 'turn:turn.bistri.cc:443'],
-      credential: 'homesweet',
-      username: 'homesweethome',
+      urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
     },
   ],
 };

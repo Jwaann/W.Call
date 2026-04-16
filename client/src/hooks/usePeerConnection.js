@@ -4,10 +4,12 @@ const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
     {
-      urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
+      urls: ['turn:relay.metered.ca:80', 'turn:relay.metered.ca:443'],
+      username: 'f38059d27c41bf7fbf1edecc',
+      credential: '2jK2KPxMQFKMxXJo',
     },
   ],
 };
